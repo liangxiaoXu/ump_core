@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:rabbit="http://www.springframework.org/schema/rabbit" xmlns:p="http://www.springframework.org/schema/p" xmlns:c="http://www.springframework.org/schema/c"
+	xsi:schemaLocation="
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.2.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-3.2.xsd
+		http://www.springframework.org/schema/rabbit http://www.springframework.org/schema/rabbit/spring-rabbit-1.3.xsd">
+
+	<!-- #################################################################### -->
+	<!-- # RabbitMQ 消息转换器 -->
+	<!-- #################################################################### -->
+	<bean id="rabbitMessageConverter" class="org.springframework.amqp.support.converter.Jackson2JsonMessageConverter">
+		<property name="classMapper">
+			<bean class="org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper" />
+		</property>
+	</bean>
+
+	<!-- #################################################################### -->
+	<!-- # RabbitMQ 异常处理程序 -->
+	<!-- #################################################################### -->
+	<bean id="logAndPropagateErrorHandler" class="org.springframework.beans.factory.config.FieldRetrievingFactoryBean">
+		<property name="staticField">
+			<value>org.springframework.scheduling.support.TaskUtils.LOG_AND_PROPAGATE_ERROR_HANDLER</value>
+		</property>
+	</bean>
+
+	<!-- #################################################################### -->
+	<!-- # rabbit 连接工厂 -->
+	<!-- #################################################################### -->
+	<rabbit:connection-factory id="rabbitConnectionFactory" addresses="172.30.2.26" username="guest" password="guest" />
+
+	<!-- #################################################################### -->
+	<!-- # RabbitMQ 管理员 -->
+	<!-- #################################################################### -->
+	<rabbit:admin connection-factory="rabbitConnectionFactory" />
+
+	<!-- #################################################################### -->
+	<!-- # RabbitMQ 队列 -->
+	<!-- #################################################################### -->
+
+	<!-- 接收方法监控消息 -->
+	<rabbit:queue id="UMP_METHOD_MONITOR" name="UMP_METHOD_MONITOR">
+		<rabbit:queue-arguments>
+			<!-- 开启集群环境镜像队列 -->
+			<entry key="x-ha-policy" value="all" />
+		</rabbit:queue-arguments>
+	</rabbit:queue>
+
+	<!-- #################################################################### -->
+	<!-- # RabbitMQ Exchange -->
+	<!-- # PS：RabbitMQ 中所有生产者提交的消息都由 Exchange 来接受，再由 Exchange 按照特定的策略转发到 Queue 进行存储/处理 -->
+	<!-- # 策略规则：pattern 表达式中 # 表示0个或若干个关键字， * 表示一个关键字 -->
+	<!-- # 示例A：queues.# 能匹配 queues.sample 也能匹配 queues.sample.one -->
+	<!-- # 示例B：queues.* 能匹配 queues.sample 不能匹配 queues.sample.one -->
+	<!-- #################################################################### -->
+	<rabbit:topic-exchange name="amq.topic">
+		<rabbit:bindings>
+			<rabbit:binding queue="UMP_METHOD_MONITOR" pattern="UMP_METHOD_MONITOR"/>
+		</rabbit:bindings>
+	</rabbit:topic-exchange>
+	<bean id="MethodMonitorListener" class="com.ea.ump.mq.MethodMonitorListener"></bean>
+	
+	
+		<!-- #################################################################### -->
+	<!-- # RabbitMQ 模板（生产者） -->
+	<!-- #################################################################### -->
+	<rabbit:template id="rabbitTemplate" connection-factory="rabbitConnectionFactory" channel-transacted="false" message-converter="rabbitMessageConverter" />
+
+	<!-- 消费者 -->
+	<rabbit:listener-container connection-factory="rabbitConnectionFactory" message-converter="rabbitMessageConverter" channel-transacted="true" error-handler="logAndPropagateErrorHandler">
+		<!-- 订单支付mq -->
+		<rabbit:listener queues="UMP_METHOD_MONITOR" ref="MethodMonitorListener" method="methodMonitor"/>
+	</rabbit:listener-container>
+
+</beans>
